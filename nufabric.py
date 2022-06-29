@@ -209,7 +209,7 @@ class BFInterpreter:
             if self.trace:
                 print("ip = %d src = %s mp = %d mem = %s" % (
                     self.ip, self.text[ip], self.mp, hex(self.bfmem[self.mp])
-                )
+                ))
                 if self.full_trace:
                     self.inspect()
                 print()
