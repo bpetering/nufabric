@@ -1,11 +1,11 @@
-# A Brainfuck IDE(!) in Python.
+# -*- coding: UTF-8 -*-
+
+
+# A Brainfuck interpreter 
 #
-# Provides a REPL, an interpreter, and
-# a compiler that can generate ELF binaries.
 #
-# The REPL is the IDE.
-#
-# Copyright 2013 Ben Petering. (FWTW, this is nonsense.)
+# Copyright 2013 Ben Petering. 
+# (last modified 2022-06-29, bugs)
 
 # TODO impl this - use pyelftools, and MOSDEF? or this?
 #   http://codeflow.org/entries/2009/jul/31/pyasm-python-x86-assembler/
@@ -32,29 +32,12 @@
 # TODO do we need much data going back and forth from main memory?
 # syscall proxying - that's the minimum
 
-# Maximize uses for compiler / interpreter. Toy, but how far can you push it?
-
-# Write a ray-tracer? :)
-
 import sys
 import re
+
 import time
 
-# This reads cleaner if a) we have some functions
-# for skipping, b) we don't have to pass lots of
-# variables around. Hence these globals
-
-bytes  = None       # memory
-src    = None       # program text
-ip     = None       # instruction pointer
-dp     = None       # data pointer
-level  = None       # bracket nesting level
-trace  = None       # trace mode toogle
-fulltrace = None    # full trace mode toggle
-delay  = None       # delay between trace output
-
-
-class BFMem:
+class BFMemory:
     def __init__(self):
         self.bytes = bytearray(30000)
 
@@ -67,6 +50,8 @@ class BFMem:
         return self.bytes[i]
 
     def __setitem__(self, i, val):
+        
+        # TODO approximate x86 semantics
         if val > 255:
             val = 0
         if val < 0:
@@ -78,218 +63,219 @@ class BFMem:
         #return str([hex(b) for b in self.bytes[i:j]])
         return self.bytes[i:j]
 
+class BFInterpreter:
+    def __init__(self, memory=None, text=None, trace=False, full_trace=False, delay=1.0):
+        if memory != None:
+            self.bfmem = memory
+        else:
+            self.bfmem  = BFMemory()    # memory
+        
+        self._initial_bfmem = bytearray(self.bfmem)
 
-def setup():
-    global bytes, src, ip, dp, level, trace, fulltrace, delay
+        if text != None:
+            self.text = text
+            self.text_len = len(text)
+        else:
+            self.text   = ''            # program text
+            self.text_len = 0
+            
+        self.ip     = -1                # "ip"
 
-    bytes = BFMem()
-    src   = ''
-    ip    = -1
-    dp    = 0
-    level = 0
-    trace = False
-    fulltrace = False
-    delay = 1.0
+        self.mp     = 0                 # pointer -> memory
+        self.level  = 0                 # bracket nesting level
 
+        self.trace  = trace             # trace mode toogle
+        self.full_trace = full_trace    # ^ full trace 
+        self.delay  = delay             # delay -between trace output
 
-def reset():
-    # Trace settings persist within an interpreter session
-    global bytes, src, ip, dp, level
+    def reset(self):
+        # Trace settings persist within a BFInterpreter
+        self.bfmem  = bytearray(self._initial_bfmem)
+        self.ip     = -1
 
-    bytes  = BFMem()
-    src    = ''
-    ip     = -1
-    dp     = 0
-    level  = 0          # TODO don't set these in lots of different places
+        self.mp     = 0
+        self.level  = 0 
 
-
-def inspect():
-    global dp
-    global bytes
-
-    # TODO design this properly:
-    # - what needs to be ther
-    # - how best to lay it out
-    # TODO print half before dp, then just center
-    print ' ' * 6 * (dp % 10),
-    print 'dp'
-    print
-    print "dp = %4x" % dp
-    print "           ",
-    for i in range(0,10):
-        print "%4x " % (dp+i),
-    print
-    print
-    print "mem = (0x) ",
-    for i in bytes[dp:dp+10]:
-        print "%4.2x " % i,
-    print
+    def inspect(self):
+        # TODO print half, mp, then just center
+        print(' ' * 6 * (self.mp % 10), end='')
 
 
-def toggle_trace():
-    global trace, fulltrace
-
-    if trace:
-        trace = False
-        fulltrace = False
-    else:
-        trace = True
-
-
-def toggle_fulltrace():
-    global trace, fulltrace
-
-    if fulltrace:
-        fulltrace = False
-    else:
-        trace = True
-        fulltrace = True
+        print('mp')
+        print()
+        print('mp = %4x' % mp)
+        print(' ' * 10)
+        for i in range(0, 10):
+            print('%4x ' % (dp+i), end='')
+        print()
+        print()
+        print('mem = (0x) ', end='')
+        for i in self.bfmem[mp:mp+10]:
+            print('%10.2x ' % i, end='')
+        print()
 
 
-def trace_status():
-    global trace, fulltrace
+    def toggle_trace(self):
+        if self.trace:
+            self.trace = False
+            self.full_trace = False
+        else:
+            self.trace = True
 
-    print "Trace mode %s" % ('on' if trace else 'off')
-    print "Full trace mode %s" % ('on' if fulltrace else 'off')
+    def toggle_full_trace(self):
+        if self.full_trace:
+            self.full_trace = False
+        else:
+            self.trace = True
+            self.full_trace = True
 
+    def trace_status(self):
+        print('Trace mode %s' % ('on' if trace else 'off'))
+        print('Full trace mode %s' % ('on' if full_trace else 'off'))
 
-# Skip fwd past matching bracket if byte at pointer is zero
-def skip_fwd():
-    global ip
-    global level
+    # Skip fwd past matching bracket if byte at pointer is zero
 
-    start = ip
-    ip += 1          # skip past the current bracket
-    while True:
-        if src[ip] == '[':
-            level += 1
-        if src[ip] == ']':
-            if level > 0:
-                level -= 1
-            else:
-                # next iter of main loop will set next command for us
-                level = 0   # reset level
-                break
-        ip += 1
-    #print "skipped %d instructions" % (ip - start)
+    def skip_fwd(self):
+        self.ip += 1          # skip past the current bracket
+        if self.ip == self.text_len:
+            raise Exception("skip_fwd() reached end of text, not expected")
 
-
-# Skip back to matching bracket if byte at pointer is non-zero
-def skip_back():
-    global ip
-    global level
-
-    start = ip
-    ip -= 1          # skip past current bracket
-    while True:
-        if src[ip] == ']':
-            level += 1
-        if src[ip] == '[':
-            if level > 0:
-                level -= 1
-            else:
-                # next iter of main loop will set next command for us
-                level = 0   # reset level
-                break
-        ip -= 1
+        while self.ip < self.text_len:
+            if self.text[self.ip] == '[':
+                self.level += 1
+            if self.text[self.ip] == ']':
+                if self.level > 0:
+                    self.level -= 1
+                else:
+                    # next iter of main loop will set next command for us
+                    self.level = 0   # reset level
+                    break
+            self.ip += 1
+        #print "skipped %d instructions" % (ip - start)
 
 
-# TODO set and inspect dp manually
+    # Skip back to matching bracket if byte at pointer is non-zero
+    
+    def skip_back(self):
+        self.ip -= 1          # skip past current bracket
+        if self.ip == -1:
+            raise Exception("skip_back() went past index 0, not expected")
+
+        while self.ip > 0:
+            if self.text[self.ip] == ']':
+                self.level += 1
+            if self.text[self.ip] == '[':
+                if self.level > 0:
+                    self.level -= 1
+                else:
+                    # next iter of main loop will set next command for us
+                    self.level = 0   # reset level
+                    break
+            self.ip -= 1
 
 
-# TODO extend BF with a compiler to ELF
-# - add a new operator to do a linux syscall
-# - use cells a,b,c,d,e,f,... relative to current data pointer
-
-# TODO catch errors and print debug info - "register" values,
-# src around pointer, memory around pointer
-def interpret(s):
-    global bytes
-    global src
-    global ip
-    global dp
-    global level
-    global trace
-    global delay
-
-    src = re.sub(r'[^\[\]><+-.,]', '', s)
-    srclen = len(src)
-
-    opening = src.count('[')
-    closing = src.count(']')
-    if opening != closing:
-        print "Invalid - number of opening and closing braces doesn't match"
-        print " (opening = %d, closing = %d)" % (opening, closing)
-        exit(1)
-
-    ip = -1
-    while ip < srclen-1:
-        ip += 1
-
-        # TODO this should be both before loop beings, and *after* execution of
-        # instruction, and at end of interpret()
-        if trace:
-            print "ip = %d src = %s dp = %d mem = %s" % (
-                ip, src[ip], dp, hex(bytes[dp])
-            )
-            if fulltrace:
-                inspect()
-            print
-            time.sleep(delay)
-
-        if src[ip] == '[':
-            if bytes[dp] == 0:
-                skip_fwd()
-            continue
-
-        if src[ip] == ']':
-            if bytes[dp] != 0:
-                skip_back()
-            continue
-
-        if src[ip] == '>':
-            if dp == 29999:
-                dp = -1
-            dp += 1
-            continue
-
-        if src[ip] == '<':
-            if dp == 0:
-                dp = 30000
-            dp -= 1
-            continue
-
-        if src[ip] == '+':
-            bytes[dp] += 1
-            continue
-
-        if src[ip] == '-':
-            bytes[dp] -= 1
-            continue
-
-        if src[ip] == '.':
-            sys.stdout.write(chr(bytes[dp]))
-            continue
-
-        if src[ip] == ',':
-            bytes[dp] = sys.stdin.read(1)
-            continue
+    # TODO set and inspect mp 
 
 
-# TODO what other BF operations/algorithms/primitives are useful?
-# which ones do you need to write a ray tracer? :)
+    # TODO extend BF with a compiler to ELF
+    # - add a new operator to do a linux syscall
+    # - use cells a,b,c,d,e,f,... 
+
+    # TODO catch errors and print debug info - "register" values,
+    # src around pointer, memory around pointer
 
 
-# TODO make easier to use these primitives / combine primitives
+    def interpret(self, add_text=None):
 
-# TODO exten this -move arbitrary cell to other arbitrary cell
-# TODO extend that ^ - move n-cell sized value
 
-# This is basically a macro system :)
+        # Don't remove characters - keep text offsets
+        self.text += add_text
 
+
+        self.text_len += len(add_text)
+
+        left = self.text.count('[')
+        right = self.text.count(']')
+        if left != right:
+            raise Exception(
+                "Program text not valid - number of brackets do not match "
+                "( '[' / ']' -> {} / {})".format(left, right)
+            );
+
+        # IP = -1
+        while self.ip < self.text_len - 1:
+            self.ip += 1
+
+            # TODO this should be both prior to the loop, and *after* execution of
+            # instruction, and at end of interpret()
+            if self.trace:
+                print("ip = %d src = %s mp = %d mem = %s" % (
+                    self.ip, self.text[ip], self.mp, hex(self.bfmem[self.mp])
+                )
+                if self.full_trace:
+                    self.inspect()
+                print()
+                time.sleep(delay)
+
+            if self.text[self.ip] == '[':
+                if self.bfmem[self.mp] == 0:
+
+                    self.skip_fwd()
+                continue
+
+            if self.text[self.ip] == ']':
+                if self.bfmem[self.mp] != 0:
+
+
+                    self.skip_back()
+                continue
+
+            if self.text[self.ip] == '>':
+                if self.mp == 29999:
+                    self.mp = -1
+                self.mp += 1
+                continue
+
+            if self.text[self.ip] == '<':
+                if self.mp == 0:
+                    self.mp = 30000
+                self.mp -= 1
+                continue
+
+            if self.text[self.ip] == '+':
+                self.bfmem[self.mp] += 1
+                continue
+
+            if self.text[self.ip] == '-':
+                self.bfmem[self.mp] -= 1
+                continue
+
+            if self.text[self.ip] == '.':
+            
+                sys.stdout.write(chr(self.bfmem[self.mp]))        # ???
+                continue
+
+            if self.text[self.ip] == ',':
+                self.bfmem[self.mp] = sys.stdin.read(1)
+                continue
+
+            # Remaining - ignore
+
+
+            # TODO what other BF operations/algorithms/primitives are useful?
+
+
+            # TODO make easier to use these primitives / combine primitives
+
+            # TODO extend this -move arbitrary cell to other arbitrary cell
+        # TODO extend that ^ - move n-cell sized value
+
+
+
+# Methods. ???
 # reverse a direction
-def r(direction):
-    return '<' if direction == '>' else '>'
+#def reverse(direction):
+#    return '<' if direction == '>' else '>'
 
 # TODO make these useful - can we embed inside a loop?
 # put in other useful places?
@@ -327,46 +313,46 @@ def n(n):
 
 
 # Convert an ASCII string to a Brainfuck program that generates it
-def bfgens(s):
-    bf = ''
-    for i in xrange(0, len(s)):
-        bf += '+' * ord(s[i])
-        bf += '.'
-        # conserve memory but increase source code length
-        # other method: 'throw away' current cell, use next one
-        bf += '-' * ord(s[i])
-    return bf
+#def bfgens(s):
+#    bf = ''
+#    for i in xrange(0, len(s)):
+#        bf += '+' * ord(s[i])
+#        bf += '.'
+#        # conserve memory but increase source code length
+#        # other method: 'throw away' current cell, use next one
+#        bf += '-' * ord(s[i])
+#    return bf
 
-# TODO methods to build up segments of a BF program
-# TODO easy way to call them
-
+# TODO methods to build up segments of a BF program - how to call them
 # TODO tool to build up segments, then write that source to a file
-
 # TODO stdin as pipe, file as first arg
-if __name__ == '__main__':
-    setup()
-    while True:
-        s = raw_input('bf> ')
 
-        # This is fugly, prettify it
-        if s.startswith('p'):        # eval as Python
-            print eval(s[2:])        # TODO catch errors in REPL TODO hexdump
-        elif s.startswith('b'):
-            interpret(eval(s[2:]))   # eval as Python, and then interpret as BF
-        elif s.startswith('i'):
-            inspect()
-        elif re.match(r'[0-9]+', s):
-            print "%.2x" % bytes[int(s)]
-        elif s.startswith('reset'):
-            reset()
-            print "State reset."
-        elif s.startswith('t'):
-            toggle_trace()
-            trace_status()
-        elif s.startswith('ft'):
-            toggle_fulltrace()
-            trace_status()
-        elif s.startswith('d'):
-            delay = float(s[2:])
+if __name__ == '__main__':
+    interpreter = BFInterpreter()
+    while True:
+        text = input('bf> ')
+        if text.startswith('p '):        # eval as Python
+            print(eval(text[2:]))       # TODO catch errors in REPL TODO hexdump
+        elif text.startswith('b '):
+            # eval as Python, and then interpret as BF
+            interpreter.interpret(add_text=eval(text[2:]))   
+        elif text.startswith('i'):
+            interpreter.inspect()
+        elif re.match(r'\d+', text):
+            print("%.2x" % interpreter.bfmem[int(text)])
+        elif text.startswith('r'):
+            interpreter.reset()
+            print("Reset.")
+        elif text.startswith('t'):
+            interpreter.toggle_trace()
+
+            interpreter.trace_status()
+        elif text.startswith('ft'):
+            interpreter.toggle_full_trace()
+
+            interpreter.trace_status()
+        elif text.startswith('d '):
+            interpreter.delay = float(text[2:])
+
         else:
-            interpret(s)
+            interpreter.interpret()
