@@ -10,7 +10,8 @@
 # TODO impl this - use pyelftools, and MOSDEF? or this?
 #   http://codeflow.org/entries/2009/jul/31/pyasm-python-x86-assembler/
 
-# TODO split a lot of this into a markdown readme
+
+
 
 # TODO optional unlimited cells / unlimited cell size
 #  -> proper Turing equivalence?
@@ -28,9 +29,6 @@
 # ...
 # TODO how big to args need to be
 # TODO if 32 bits, write Python helper func to create 32-bit values
-
-# TODO do we need much data going back and forth from main memory?
-# syscall proxying - that's the minimum
 
 import sys
 import re
@@ -340,9 +338,11 @@ if __name__ == '__main__':
             interpreter.inspect()
         elif re.match(r'\d+', text):
             print("%.2x" % interpreter.bfmem[int(text)])
+        
         elif text.startswith('r'):
             interpreter.reset()
             print("Reset.")
+
         elif text.startswith('t'):
             interpreter.toggle_trace()
 
