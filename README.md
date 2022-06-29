@@ -1,4 +1,3 @@
-brainfuck-ide
+cabinfur
 =============
-
-A Brainfuck IDE(!) in Python. Provides a REPL, an interpreter, and a compiler that can generate ELF binaries.
+... interpreter, for an annoying programming language.
