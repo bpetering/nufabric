@@ -101,14 +101,14 @@ class BFInterpreter:
 
         print('mp')
         print()
-        print('mp = %4x' % mp)
+        print('mp = %4x' % self.mp)
         print(' ' * 10)
         for i in range(0, 10):
-            print('%4x ' % (dp+i), end='')
+            print('%4x ' % (self.mp+i), end='')
         print()
         print()
         print('mem = (0x) ', end='')
-        for i in self.bfmem[mp:mp+10]:
+        for i in self.bfmem[self.mp:self.mp+10]:
             print('%10.2x ' % i, end='')
         print()
 
@@ -187,10 +187,12 @@ class BFInterpreter:
 
 
         # Don't remove characters - keep text offsets
-        self.text += add_text
+        if add_text != None:
+            self.text += add_text
+            self.text_len += len(add_text)
 
 
-        self.text_len += len(add_text)
+
 
         left = self.text.count('[')
         right = self.text.count(']')
@@ -290,17 +292,15 @@ def move_value(direction, ncells):
 
 # Store an arbitrary-sized number with most significant byte
 # starting at current cell
-# TODO finish
-# TODO generalize
-# TODO make this a macro
+# TODO finish, generalize, make this a macro
 # TODO big-endian or little-endian?
-def n(n):
-    x = 1
-    while 2**x <= n:
-        x += 1
-    # round up to multiple of 8
-    if x % 8 != 0:
-        x += (8 - (x % 8))
+#def n(n):
+#    x = 1
+#    while 2**x <= n:
+#        x += 1
+#    # round up to multiple of 8
+#    if x % 8 != 0:
+#        x += (8 - (x % 8))
 
         # store highest 8 bits
         # discard
@@ -309,9 +309,8 @@ def n(n):
     # bytes[dp] = n >> 8
     # bytes[dp+1] = n & 0xff
 
-
 # Convert an ASCII string to a Brainfuck program that generates it
-#def bfgens(s):
+#def TODO(s):
 #    bf = ''
 #    for i in xrange(0, len(s)):
 #        bf += '+' * ord(s[i])
@@ -321,28 +320,30 @@ def n(n):
 #        bf += '-' * ord(s[i])
 #    return bf
 
+
 # TODO methods to build up segments of a BF program - how to call them
 # TODO tool to build up segments, then write that source to a file
 # TODO stdin as pipe, file as first arg
 
 if __name__ == '__main__':
     interpreter = BFInterpreter()
-    while True:
-        text = input('bf> ')
+    while True:         # TODO mp, ip, 
+        try:
+            text = input('bf> ')
+        except EOFError:
+            sys.exit(0)
         if text.startswith('p '):        # eval as Python
-            print(eval(text[2:]))       # TODO catch errors in REPL TODO hexdump
+            eval(text[2:])               # TODO catch errors in REPL TODO hexdump
         elif text.startswith('b '):
             # eval as Python, and then interpret as BF
             interpreter.interpret(add_text=eval(text[2:]))   
-        elif text.startswith('i'):
+        elif text.startswith('in'):
             interpreter.inspect()
         elif re.match(r'\d+', text):
             print("%.2x" % interpreter.bfmem[int(text)])
-        
         elif text.startswith('r'):
             interpreter.reset()
             print("Reset.")
-
         elif text.startswith('t'):
             interpreter.toggle_trace()
 
@@ -353,6 +354,5 @@ if __name__ == '__main__':
             interpreter.trace_status()
         elif text.startswith('d '):
             interpreter.delay = float(text[2:])
-
         else:
-            interpreter.interpret()
+            interpreter.interpret(add_text=text)
